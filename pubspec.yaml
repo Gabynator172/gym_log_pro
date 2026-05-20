@@ -1,0 +1,37 @@
+name: gym_log_pro
+description: App de seguimiento de gimnasio offline
+
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'     # ← Esta línea es la que faltaba
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # Base de datos local (100% Offline)
+  drift: ^2.26.0
+  sqlite3_flutter_libs: ^0.5.0
+  path_provider: ^2.1.5
+  path: ^1.9.1
+
+  # Estado y arquitectura
+  flutter_riverpod: ^2.6.1
+  
+  # UI y Funcionalidades
+  table_calendar: ^3.2.0
+  fl_chart: ^0.70.0
+  intl: ^0.20.2
+  shared_preferences: ^2.5.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  drift_dev: ^2.26.0
+  build_runner: ^2.4.15
+
+flutter:
+  uses-material-design: true
