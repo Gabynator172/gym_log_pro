@@ -17,6 +17,7 @@ class _NewWorkoutScreenState extends ConsumerState<NewWorkoutScreen> {
   late AppDatabase db;
   int? currentSessionId;
   final List<WorkoutExercise> currentWorkoutExercises = [];
+  final Set<int> addedExerciseIds = {};
 
   @override
   void initState() {
@@ -26,9 +27,7 @@ class _NewWorkoutScreenState extends ConsumerState<NewWorkoutScreen> {
   }
 
   Future<void> _createNewSession() async {
-    final sessionId = await db.insertSession(
-      TrainingSessionsCompanion.insert(date: DateTime.now()),
-    );
+    final sessionId = await db.insertSession(TrainingSessionsCompanion.insert(date: DateTime.now()));
     setState(() => currentSessionId = sessionId);
   }
 
@@ -37,58 +36,141 @@ class _NewWorkoutScreenState extends ConsumerState<NewWorkoutScreen> {
     final exercises = await db.getExercisesForRoutine(routine.id);
     setState(() {
       currentWorkoutExercises.clear();
+      addedExerciseIds.clear();
       for (var ex in exercises) {
-        currentWorkoutExercises.add(WorkoutExercise(
-          name: ex.name,
-          exerciseId: ex.id,
-          sets: [],
-        ));
+        currentWorkoutExercises.add(WorkoutExercise(name: ex.name, exerciseId: ex.id, sets: []));
+        addedExerciseIds.add(ex.id);
       }
     });
     Navigator.pop(context);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('✅ Rutina "${routine.name}" cargada')),
-    );
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('✅ Rutina "${routine.name}" cargada')));
   }
 
-  // ==================== BUSCAR EJERCICIO ====================
+  // ==================== BUSCADOR AVANZADO ====================
   void _showExerciseSelector() async {
     final allExercises = await db.getAllExercises();
+    String searchQuery = '';
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      builder: (context) => DraggableScrollableSheet(
-        initialChildSize: 0.9,
-        builder: (context, scrollController) {
-          return Column(
-            children: [
-              const Padding(
-                padding: EdgeInsets.all(16),
-                child: Text('Buscar Ejercicio', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-              ),
-              Expanded(
-                child: ListView.builder(
-                  controller: scrollController,
-                  itemCount: allExercises.length,
-                  itemBuilder: (context, index) {
-                    final exercise = allExercises[index];
-                    return ListTile(
-                      title: Text(exercise.name),
-                      subtitle: Text(exercise.muscleGroup),
-                      trailing: const Icon(Icons.add),
-                      onTap: () {
-                        Navigator.pop(context);
-                        _addExercise(exercise);
-                      },
-                    );
-                  },
-                ),
-              ),
-            ],
-          );
-        },
-      ),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final filtered = allExercises
+                .where((ex) => ex.name.toLowerCase().contains(searchQuery.toLowerCase()))
+                .toList();
+
+            return DraggableScrollableSheet(
+              initialChildSize: 0.92,
+              minChildSize: 0.6,
+              maxChildSize: 0.95,
+              builder: (context, scrollController) {
+                return Column(
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Text('Seleccionar Ejercicios', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                    ),
+
+                    // Barra de búsqueda
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: TextField(
+                        decoration: const InputDecoration(
+                          labelText: 'Buscar ejercicio...',
+                          prefixIcon: Icon(Icons.search),
+                          border: OutlineInputBorder(),
+                        ),
+                        onChanged: (value) {
+                          setModalState(() => searchQuery = value);
+                        },
+                      ),
+                    ),
+
+                    const SizedBox(height: 8),
+
+                    // Ejercicios seleccionados (anclados arriba)
+                    if (addedExerciseIds.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Seleccionados:', style: TextStyle(fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: currentWorkoutExercises.map((ex) {
+                                return Chip(
+                                  label: Text(ex.name),
+                                  backgroundColor: Colors.green.withOpacity(0.2),
+                                  deleteIcon: const Icon(Icons.close, size: 18),
+                                  onDeleted: () {
+                                    _removeExercise(currentWorkoutExercises.indexOf(ex));
+                                    setModalState(() {});
+                                  },
+                                );
+                              }).toList(),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                    Expanded(
+                      child: ListView.builder(
+                        controller: scrollController,
+                        itemCount: filtered.length,
+                        itemBuilder: (context, index) {
+                          final exercise = filtered[index];
+                          final isAdded = addedExerciseIds.contains(exercise.id);
+
+                          return ListTile(
+                            title: Text(exercise.name),
+                            subtitle: Text(exercise.muscleGroup),
+                            trailing: Icon(
+                              isAdded ? Icons.check_circle : Icons.add_circle_outline,
+                              color: isAdded ? Colors.green : Colors.blue,
+                              size: 28,
+                            ),
+                            onTap: () {
+                              if (isAdded) {
+                                // Quitar si ya está seleccionado
+                                final indexToRemove = currentWorkoutExercises.indexWhere((e) => e.exerciseId == exercise.id);
+                                if (indexToRemove != -1) {
+                                  _removeExercise(indexToRemove);
+                                  setModalState(() {});
+                                }
+                              } else {
+                                // Agregar
+                                _addExercise(exercise);
+                                setModalState(() {});
+                              }
+                            },
+                          );
+                        },
+                      ),
+                    ),
+
+                    // Botón Listo
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text('Listo', style: TextStyle(fontSize: 18)),
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            );
+          },
+        );
+      },
     );
   }
 
@@ -99,26 +181,23 @@ class _NewWorkoutScreenState extends ConsumerState<NewWorkoutScreen> {
         exerciseId: exercise.id,
         sets: [],
       ));
+      addedExerciseIds.add(exercise.id);
     });
   }
 
-  // ==================== ELIMINAR EJERCICIO ====================
   void _removeExercise(int index) {
+    if (index < 0 || index >= currentWorkoutExercises.length) return;
     final name = currentWorkoutExercises[index].name;
     setState(() {
+      addedExerciseIds.remove(currentWorkoutExercises[index].exerciseId);
       currentWorkoutExercises.removeAt(index);
     });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Eliminado: $name')),
-    );
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Eliminado: $name')));
   }
 
-  // ==================== GUARDADO ====================
   Future<void> _finishWorkout() async {
     if (currentSessionId == null || currentWorkoutExercises.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Agrega al menos un ejercicio')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Agrega al menos un ejercicio')));
       return;
     }
 
@@ -126,22 +205,18 @@ class _NewWorkoutScreenState extends ConsumerState<NewWorkoutScreen> {
       for (var workoutEx in currentWorkoutExercises) {
         for (int i = 0; i < workoutEx.sets.length; i++) {
           final set = workoutEx.sets[i];
-          await db.insertSet(
-            ExerciseSetsCompanion.insert(
-              trainingSessionId: currentSessionId!,
-              exerciseId: workoutEx.exerciseId,
-              setNumber: i + 1,
-              reps: set.reps,
-              weight: set.weight,
-              completed: const drift.Value(true),
-            ),
-          );
+          await db.insertSet(ExerciseSetsCompanion.insert(
+            trainingSessionId: currentSessionId!,
+            exerciseId: workoutEx.exerciseId,
+            setNumber: i + 1,
+            reps: set.reps,
+            weight: set.weight,
+            completed: const drift.Value(true),
+          ));
         }
       }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('✅ Entrenamiento guardado correctamente!'), backgroundColor: Colors.green),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('✅ Entrenamiento guardado correctamente!'), backgroundColor: Colors.green));
       Navigator.pop(context);
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
@@ -151,16 +226,7 @@ class _NewWorkoutScreenState extends ConsumerState<NewWorkoutScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Nuevo Entrenamiento'),
-        actions: [
-          TextButton.icon(
-            onPressed: _finishWorkout,
-            icon: const Icon(Icons.check_circle),
-            label: const Text('Finalizar'),
-          ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('Nuevo Entrenamiento')),
       body: Column(
         children: [
           Container(
@@ -174,7 +240,6 @@ class _NewWorkoutScreenState extends ConsumerState<NewWorkoutScreen> {
               ],
             ),
           ),
-
           Expanded(
             child: currentWorkoutExercises.isEmpty
                 ? const Center(
@@ -218,28 +283,17 @@ class _NewWorkoutScreenState extends ConsumerState<NewWorkoutScreen> {
     );
   }
 
-  // ==================== MENÚ DE AGREGAR ====================
   void _showAddOptions() {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (context) => Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              width: 40,
-              height: 4,
-              margin: const EdgeInsets.only(bottom: 20),
-              decoration: BoxDecoration(
-                color: Colors.grey[600],
-                borderRadius: BorderRadius.circular(10),
-              ),
-            ),
+            Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 20), decoration: BoxDecoration(color: Colors.grey[600], borderRadius: BorderRadius.circular(10))),
             const Text('¿Qué quieres agregar?', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
             const SizedBox(height: 24),
 
@@ -314,7 +368,7 @@ class _NewWorkoutScreenState extends ConsumerState<NewWorkoutScreen> {
   }
 }
 
-// ====================== MODELOS Y SetInputSheet ======================
+// ====================== MODELOS ======================
 class WorkoutExercise {
   final String name;
   final int exerciseId;
@@ -328,6 +382,7 @@ class ExerciseSet {
   ExerciseSet({required this.reps, required this.weight});
 }
 
+// ====================== SetInputSheet ======================
 class SetInputSheet extends StatefulWidget {
   final WorkoutExercise exercise;
   final Function(List<ExerciseSet>) onSetsUpdated;
