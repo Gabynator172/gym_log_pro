@@ -44,23 +44,17 @@ class _RoutineDetailScreenState extends ConsumerState<RoutineDetailScreen> {
 
   Future<void> _onReorder(int oldIndex, int newIndex) async {
     if (oldIndex < newIndex) newIndex -= 1;
+    final moved = exercisesInRoutine.removeAt(oldIndex);
+    exercisesInRoutine.insert(newIndex, moved);
 
-    final movedExercise = exercisesInRoutine.removeAt(oldIndex);
-    exercisesInRoutine.insert(newIndex, movedExercise);
-
-    // Actualizar orden en BD
     for (int i = 0; i < exercisesInRoutine.length; i++) {
-      await db.addExerciseToRoutine(
-        widget.routine.id,
-        exercisesInRoutine[i].id,
-        i,
-      );
+      await db.addExerciseToRoutine(widget.routine.id, exercisesInRoutine[i].id, i);
     }
     setState(() {});
   }
 
-  void _showAddExercisesToRoutine() async { 
-    // (Mantengo el buscador anterior, puedes copiarlo si lo necesitas)
+  // ==================== BUSCADOR CON ANCLADOS ARRIBA ====================
+  void _showAddExercisesToRoutine() async {
     final allExercises = await db.getAllExercises();
     String searchQuery = '';
 
@@ -75,13 +69,18 @@ class _RoutineDetailScreenState extends ConsumerState<RoutineDetailScreen> {
 
           return DraggableScrollableSheet(
             initialChildSize: 0.92,
+            minChildSize: 0.6,
+            maxChildSize: 0.95,
             builder: (context, scrollController) {
               return Column(
                 children: [
                   Padding(
                     padding: const EdgeInsets.all(16),
-                    child: Text('Agregar a "${widget.routine.name}"', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                    child: Text('Agregar a "${widget.routine.name}"', 
+                        style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
                   ),
+
+                  // Barra de búsqueda
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: TextField(
@@ -90,9 +89,42 @@ class _RoutineDetailScreenState extends ConsumerState<RoutineDetailScreen> {
                         prefixIcon: Icon(Icons.search),
                         border: OutlineInputBorder(),
                       ),
-                      onChanged: (value) => setModalState(() => searchQuery = value),
+                      onChanged: (value) {
+                        setModalState(() => searchQuery = value);
+                      },
                     ),
                   ),
+
+                  const SizedBox(height: 8),
+
+                  // Ejercicios ya seleccionados (ANCLADOS ARRIBA)
+                  if (exercisesInRoutine.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('En esta rutina:', style: TextStyle(fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: exercisesInRoutine.map((ex) {
+                              return Chip(
+                                label: Text(ex.name),
+                                backgroundColor: Colors.green.withOpacity(0.2),
+                                deleteIcon: const Icon(Icons.close, size: 18),
+                                onDeleted: () async {
+                                  await _removeExerciseFromRoutine(ex.id);
+                                  setModalState(() {});
+                                },
+                              );
+                            }).toList(),
+                          ),
+                        ],
+                      ),
+                    ),
+
                   Expanded(
                     child: ListView.builder(
                       controller: scrollController,
@@ -107,6 +139,7 @@ class _RoutineDetailScreenState extends ConsumerState<RoutineDetailScreen> {
                           trailing: Icon(
                             isInRoutine ? Icons.check_circle : Icons.add_circle_outline,
                             color: isInRoutine ? Colors.green : Colors.blue,
+                            size: 28,
                           ),
                           onTap: () async {
                             if (isInRoutine) {
@@ -120,13 +153,14 @@ class _RoutineDetailScreenState extends ConsumerState<RoutineDetailScreen> {
                       },
                     ),
                   ),
+
                   Padding(
                     padding: const EdgeInsets.all(16),
                     child: SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
                         onPressed: () => Navigator.pop(context),
-                        child: const Text('Listo'),
+                        child: const Text('Listo', style: TextStyle(fontSize: 18)),
                       ),
                     ),
                   ),
@@ -177,7 +211,7 @@ class _RoutineDetailScreenState extends ConsumerState<RoutineDetailScreen> {
                     leading: isEditing
                         ? ReorderableDragStartListener(
                             index: index,
-                            child: const Icon(Icons.drag_handle, size: 28), // ← 3 líneas horizontales
+                            child: const Icon(Icons.drag_handle, size: 28),
                           )
                         : null,
                     title: Text(exercise.name, style: const TextStyle(fontWeight: FontWeight.bold)),
