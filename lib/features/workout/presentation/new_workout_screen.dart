@@ -18,16 +18,11 @@ class _NewWorkoutScreenState extends ConsumerState<NewWorkoutScreen> {
   int? currentSessionId;
   final List<WorkoutExercise> currentWorkoutExercises = [];
 
-  List<Exercise> allExercises = [];
-  List<Exercise> filteredExercises = [];
-
   @override
   void initState() {
     super.initState();
     db = ref.read(databaseProvider);
     _createNewSession();
-    _loadExercises();
-    _seedExercisesIfEmpty();
   }
 
   Future<void> _createNewSession() async {
@@ -37,103 +32,93 @@ class _NewWorkoutScreenState extends ConsumerState<NewWorkoutScreen> {
     setState(() => currentSessionId = sessionId);
   }
 
-  Future<void> _loadExercises() async {
-    final exercises = await db.getAllExercises();
+  // ==================== CARGAR RUTINA ====================
+  Future<void> _loadRoutine(Routine routine) async {
+    final exercises = await db.getExercisesForRoutine(routine.id);
     setState(() {
-      allExercises = exercises;
-      filteredExercises = exercises;
+      currentWorkoutExercises.clear();
+      for (var ex in exercises) {
+        currentWorkoutExercises.add(WorkoutExercise(
+          name: ex.name,
+          exerciseId: ex.id,
+          sets: [],
+        ));
+      }
+    });
+    Navigator.pop(context);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('✅ Rutina "${routine.name}" cargada')),
+    );
+  }
+
+  // ==================== BUSCAR EJERCICIO ====================
+  void _showExerciseSelector() async {
+    final allExercises = await db.getAllExercises();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.9,
+        builder: (context, scrollController) {
+          return Column(
+            children: [
+              const Padding(
+                padding: EdgeInsets.all(16),
+                child: Text('Buscar Ejercicio', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+              ),
+              Expanded(
+                child: ListView.builder(
+                  controller: scrollController,
+                  itemCount: allExercises.length,
+                  itemBuilder: (context, index) {
+                    final exercise = allExercises[index];
+                    return ListTile(
+                      title: Text(exercise.name),
+                      subtitle: Text(exercise.muscleGroup),
+                      trailing: const Icon(Icons.add),
+                      onTap: () {
+                        Navigator.pop(context);
+                        _addExercise(exercise);
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  void _addExercise(Exercise exercise) {
+    setState(() {
+      currentWorkoutExercises.add(WorkoutExercise(
+        name: exercise.name,
+        exerciseId: exercise.id,
+        sets: [],
+      ));
     });
   }
 
-  // ==================== EJERCICIOS PRECARGADOS ====================
-  Future<void> _seedExercisesIfEmpty() async {
-    final existing = await db.getAllExercises();
-    if (existing.isNotEmpty) return;
-
-    final defaultExercises = [
-      // Pecho
-      ('Press de Banca con Barra', 'Pecho', 'Compuesto', 'Barra'),
-      ('Press Inclinado con Barra', 'Pecho', 'Compuesto', 'Barra'),
-      ('Press Banca Mancuernas', 'Pecho', 'Compuesto', 'Mancuernas'),
-      ('Aperturas con Mancuernas', 'Pecho', 'Aislamiento', 'Mancuernas'),
-      // Espalda
-      ('Dominadas', 'Espalda', 'Compuesto', 'Cuerpo'),
-      ('Remo con Barra', 'Espalda', 'Compuesto', 'Barra'),
-      ('Remo con Mancuernas', 'Espalda', 'Compuesto', 'Mancuernas'),
-      ('Jalón al Pecho', 'Espalda', 'Compuesto', 'Máquina'),
-      // Piernas
-      ('Sentadilla con Barra', 'Piernas', 'Compuesto', 'Barra'),
-      ('Prensa de Piernas', 'Piernas', 'Compuesto', 'Máquina'),
-      ('Peso Muerto Rumano', 'Piernas', 'Compuesto', 'Barra'),
-      ('Zancadas', 'Piernas', 'Compuesto', 'Mancuernas'),
-      // Hombros
-      ('Press Militar con Barra', 'Hombros', 'Compuesto', 'Barra'),
-      ('Elevaciones Laterales', 'Hombros', 'Aislamiento', 'Mancuernas'),
-      // Brazos
-      ('Curl de Bíceps con Barra', 'Bíceps', 'Aislamiento', 'Barra'),
-      ('Curl Martillo', 'Bíceps', 'Aislamiento', 'Mancuernas'),
-      ('Tríceps en Polea', 'Tríceps', 'Aislamiento', 'Cable'),
-      ('Fondos en Paralelas', 'Tríceps', 'Compuesto', 'Cuerpo'),
-      // Core
-      ('Plancha', 'Core', 'Aislamiento', 'Cuerpo'),
-      ('Crunch Abdominal', 'Core', 'Aislamiento', 'Cuerpo'),
-    ];
-
-    for (var ex in defaultExercises) {
-      await db.insertExercise(
-        ExercisesCompanion.insert(
-          name: ex.$1,
-          muscleGroup: ex.$2,
-          type: ex.$3,
-          equipment: ex.$4,
-          isCustom: const drift.Value(false),
-        ),
-      );
-    }
-    await _loadExercises();
+  // ==================== ELIMINAR EJERCICIO ====================
+  void _removeExercise(int index) {
+    final name = currentWorkoutExercises[index].name;
+    setState(() {
+      currentWorkoutExercises.removeAt(index);
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Eliminado: $name')),
+    );
   }
 
-  // ==================== CARGAR RUTINA COMPLETA ====================
-  Future<void> _loadRoutine(Routine routine) async {
-    try {
-      final exercisesInRoutine = await db.getExercisesForRoutine(routine.id);
-
-      if (exercisesInRoutine.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Esta rutina no tiene ejercicios')),
-        );
-        return;
-      }
-
-      setState(() {
-        currentWorkoutExercises.clear();
-        for (var ex in exercisesInRoutine) {
-          currentWorkoutExercises.add(WorkoutExercise(
-            name: ex.name,
-            exerciseId: ex.id,
-            sets: [],
-          ));
-        }
-      });
-
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('✅ Rutina "${routine.name}" cargada (${exercisesInRoutine.length} ejercicios)'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error al cargar rutina: $e')),
-      );
-    }
-  }
-
-  // ==================== GUARDAR ENTRENAMIENTO ====================
+  // ==================== GUARDADO ====================
   Future<void> _finishWorkout() async {
     if (currentSessionId == null || currentWorkoutExercises.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Agrega al menos un ejercicio')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Agrega al menos un ejercicio')),
+      );
       return;
     }
 
@@ -148,13 +133,14 @@ class _NewWorkoutScreenState extends ConsumerState<NewWorkoutScreen> {
               setNumber: i + 1,
               reps: set.reps,
               weight: set.weight,
+              completed: const drift.Value(true),
             ),
           );
         }
       }
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('✅ Entrenamiento guardado correctamente'), backgroundColor: Colors.green),
+        const SnackBar(content: Text('✅ Entrenamiento guardado correctamente!'), backgroundColor: Colors.green),
       );
       Navigator.pop(context);
     } catch (e) {
@@ -162,7 +148,6 @@ class _NewWorkoutScreenState extends ConsumerState<NewWorkoutScreen> {
     }
   }
 
-  // ==================== UI ====================
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -189,11 +174,19 @@ class _NewWorkoutScreenState extends ConsumerState<NewWorkoutScreen> {
               ],
             ),
           ),
+
           Expanded(
             child: currentWorkoutExercises.isEmpty
                 ? const Center(
-                    child: Text('Presiona + para agregar ejercicios o rutinas',
-                        style: TextStyle(fontSize: 18, color: Colors.grey)),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.fitness_center, size: 90, color: Colors.grey),
+                        SizedBox(height: 20),
+                        Text('Sin ejercicios aún', style: TextStyle(fontSize: 22)),
+                        Text('Presiona + para agregar'),
+                      ],
+                    ),
                   )
                 : ListView.builder(
                     padding: const EdgeInsets.all(12),
@@ -203,9 +196,12 @@ class _NewWorkoutScreenState extends ConsumerState<NewWorkoutScreen> {
                       return Card(
                         margin: const EdgeInsets.only(bottom: 12),
                         child: ListTile(
-                          title: Text(ex.name),
+                          title: Text(ex.name, style: const TextStyle(fontWeight: FontWeight.bold)),
                           subtitle: Text('${ex.sets.length} series'),
-                          trailing: const Icon(Icons.edit),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.delete, color: Colors.red),
+                            onPressed: () => _removeExercise(index),
+                          ),
                           onTap: () => _editExerciseSets(index),
                         ),
                       );
@@ -222,146 +218,54 @@ class _NewWorkoutScreenState extends ConsumerState<NewWorkoutScreen> {
     );
   }
 
+  // ==================== MENÚ DE AGREGAR ====================
   void _showAddOptions() {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (context) => Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 20),
+              decoration: BoxDecoration(
+                color: Colors.grey[600],
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
             const Text('¿Qué quieres agregar?', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
             const SizedBox(height: 24),
+
             ListTile(
-              leading: const Icon(Icons.search, color: Colors.blue, size: 28),
-              title: const Text('Buscar Ejercicio'),
+              leading: const Icon(Icons.search, size: 28, color: Colors.blue),
+              title: const Text('Buscar Ejercicio Individual'),
+              subtitle: const Text('Agregar uno por uno'),
               onTap: () {
                 Navigator.pop(context);
                 _showExerciseSelector();
               },
             ),
-            const Divider(),
+            const Divider(height: 8),
+
             ListTile(
-              leading: const Icon(Icons.list_alt, color: Colors.orange, size: 28),
+              leading: const Icon(Icons.list_alt, size: 28, color: Colors.orange),
               title: const Text('Cargar Rutina Completa'),
+              subtitle: const Text('Agregar todos los ejercicios de una rutina'),
               onTap: () {
                 Navigator.pop(context);
                 _showRoutinesDialog();
               },
             ),
-            const Divider(),
-            ListTile(
-              leading: const Icon(Icons.add_circle, color: Colors.green, size: 28),
-              title: const Text('Crear Ejercicio Personalizado'),
-              onTap: () {
-                Navigator.pop(context);
-                _showCreateCustomExercise();
-              },
-            ),
+            const SizedBox(height: 20),
           ],
         ),
-      ),
-    );
-  }
-
-  void _showExerciseSelector() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (context) => DraggableScrollableSheet(
-        initialChildSize: 0.9,
-        builder: (context, scrollController) {
-          return Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: TextField(
-                  decoration: const InputDecoration(
-                    labelText: 'Buscar ejercicio...',
-                    prefixIcon: Icon(Icons.search),
-                  ),
-                  onChanged: (value) {
-                    setState(() {
-                      filteredExercises = allExercises
-                          .where((e) => e.name.toLowerCase().contains(value.toLowerCase()))
-                          .toList();
-                    });
-                  },
-                ),
-              ),
-              Expanded(
-                child: ListView.builder(
-                  controller: scrollController,
-                  itemCount: filteredExercises.length,
-                  itemBuilder: (context, index) {
-                    final ex = filteredExercises[index];
-                    return ListTile(
-                      title: Text(ex.name),
-                      subtitle: Text('${ex.muscleGroup} • ${ex.equipment}'),
-                      onTap: () {
-                        Navigator.pop(context);
-                        _addExercise(ex);
-                      },
-                    );
-                  },
-                ),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-
-  void _addExercise(Exercise exercise) {
-    setState(() {
-      currentWorkoutExercises.add(WorkoutExercise(
-        name: exercise.name,
-        exerciseId: exercise.id,
-        sets: [],
-      ));
-    });
-  }
-
-  void _showCreateCustomExercise() {
-    final nameCtrl = TextEditingController();
-    final groupCtrl = TextEditingController();
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Nuevo Ejercicio'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Nombre')),
-            TextField(controller: groupCtrl, decoration: const InputDecoration(labelText: 'Grupo Muscular')),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
-          ElevatedButton(
-            onPressed: () async {
-              if (nameCtrl.text.isNotEmpty) {
-                await db.insertExercise(
-                  ExercisesCompanion.insert(
-                    name: nameCtrl.text.trim(),
-                    muscleGroup: groupCtrl.text.trim().isEmpty ? 'Personalizado' : groupCtrl.text.trim(),
-                    type: 'Personalizado',
-                    equipment: 'Personalizado',
-                    isCustom: const drift.Value(true),
-                  ),
-                );
-                await _loadExercises();
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ejercicio creado')));
-              }
-            },
-            child: const Text('Crear'),
-          ),
-        ],
       ),
     );
   }
@@ -386,15 +290,12 @@ class _NewWorkoutScreenState extends ConsumerState<NewWorkoutScreen> {
               final routine = routines[index];
               return ListTile(
                 title: Text(routine.name),
-                subtitle: Text(routine.description ?? ''),
                 onTap: () => _loadRoutine(routine),
               );
             },
           ),
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
-        ],
+        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar'))],
       ),
     );
   }
@@ -413,23 +314,20 @@ class _NewWorkoutScreenState extends ConsumerState<NewWorkoutScreen> {
   }
 }
 
-// ====================== MODELOS ======================
+// ====================== MODELOS Y SetInputSheet ======================
 class WorkoutExercise {
   final String name;
   final int exerciseId;
   List<ExerciseSet> sets;
-
   WorkoutExercise({required this.name, required this.exerciseId, required this.sets});
 }
 
 class ExerciseSet {
   int reps;
   double weight;
-
   ExerciseSet({required this.reps, required this.weight});
 }
 
-// ====================== SetInputSheet ======================
 class SetInputSheet extends StatefulWidget {
   final WorkoutExercise exercise;
   final Function(List<ExerciseSet>) onSetsUpdated;
@@ -447,11 +345,10 @@ class _SetInputSheetState extends State<SetInputSheet> {
   void initState() {
     super.initState();
     sets = List.from(widget.exercise.sets);
-    if (sets.isEmpty) sets.add(ExerciseSet(reps: 8, weight: 60));
+    if (sets.isEmpty) sets.add(ExerciseSet(reps: 8, weight: 60.0));
   }
 
-  void _addSet() => setState(() => sets.add(ExerciseSet(reps: 8, weight: 60)));
-
+  void _addSet() => setState(() => sets.add(ExerciseSet(reps: 8, weight: 60.0)));
   void _removeSet(int index) {
     if (sets.length > 1) setState(() => sets.removeAt(index));
   }
@@ -459,12 +356,7 @@ class _SetInputSheetState extends State<SetInputSheet> {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: EdgeInsets.only(
-        bottom: MediaQuery.of(context).viewInsets.bottom,
-        left: 16,
-        right: 16,
-        top: 20,
-      ),
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, left: 16, right: 16, top: 20),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -477,27 +369,10 @@ class _SetInputSheetState extends State<SetInputSheet> {
               children: [
                 Text('Serie ${idx + 1}'),
                 const SizedBox(width: 16),
-                Expanded(
-                  child: TextField(
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: 'Reps'),
-                    controller: TextEditingController(text: set.reps.toString()),
-                    onChanged: (val) => set.reps = int.tryParse(val) ?? 8,
-                  ),
-                ),
+                Expanded(child: TextField(keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Reps'), controller: TextEditingController(text: set.reps.toString()), onChanged: (val) => set.reps = int.tryParse(val) ?? 8)),
                 const SizedBox(width: 12),
-                Expanded(
-                  child: TextField(
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    decoration: const InputDecoration(labelText: 'Peso (kg)'),
-                    controller: TextEditingController(text: set.weight.toString()),
-                    onChanged: (val) => set.weight = double.tryParse(val) ?? 60,
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.delete, color: Colors.red),
-                  onPressed: () => _removeSet(idx),
-                ),
+                Expanded(child: TextField(keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Peso (kg)'), controller: TextEditingController(text: set.weight.toString()), onChanged: (val) => set.weight = double.tryParse(val) ?? 60.0)),
+                IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: () => _removeSet(idx)),
               ],
             );
           }).toList(),
@@ -506,15 +381,10 @@ class _SetInputSheetState extends State<SetInputSheet> {
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
               TextButton.icon(onPressed: _addSet, icon: const Icon(Icons.add), label: const Text('Nueva Serie')),
-              ElevatedButton(
-                onPressed: () {
-                  widget.onSetsUpdated(sets);
-                  Navigator.pop(context);
-                },
-                child: const Text('Guardar Series'),
-              ),
+              ElevatedButton(onPressed: () { widget.onSetsUpdated(sets); Navigator.pop(context); }, child: const Text('Guardar Series')),
             ],
           ),
+          const SizedBox(height: 30),
         ],
       ),
     );
